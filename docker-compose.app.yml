@@ -1,0 +1,16 @@
+name: tilbot
+services:
+  speech-recognition:
+    build:
+      context: .
+      args:
+        PORT: ${PORT}      
+    restart: unless-stopped
+    environment:
+      MODELNAME: "whisper-tiny"
+      LANGUAGE: "nl"
+      PORT: 8082
+    ports:
+      - 8082:8082
+    volumes:
+      - .:/app
