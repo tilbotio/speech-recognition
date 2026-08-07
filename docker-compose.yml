@@ -30,7 +30,7 @@ services:
         PORT: ${PORT}
     restart: unless-stopped
     environment:
-      MODELNAME: "whisper-tiny"
+      MODELNAME: "tiny"
       LANGUAGE: "nl"
       PORT: 8082
     networks:
