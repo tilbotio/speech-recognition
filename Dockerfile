@@ -14,10 +14,12 @@ WORKDIR /app
 
 # Install system deps (if any are needed), then Python deps.
 # We keep layers efficient by copying only requirements first.
-COPY requirements-torch-cpu.txt ./
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements-torch-cpu.txt \
     && pip install --no-cache-dir -r requirements.txt
 
 # Copy the application source

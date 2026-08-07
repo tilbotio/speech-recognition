@@ -1,11 +1,12 @@
 import os
+import subprocess
 
-from fastapi import FastAPI, Query
-from sentence_transformers import SentenceTransformer, SimilarityFunction
-from typing import Annotated
-from urllib.parse import unquote
+import numpy as np
+import whisper
 
-modelname = 'whisper-large-v3'
+from fastapi import FastAPI, File, HTTPException, UploadFile
+
+modelname = 'tiny'
 language = 'auto'
 
 if 'MODELNAME' in os.environ:
@@ -14,66 +15,63 @@ if 'MODELNAME' in os.environ:
 if 'LANGUAGE' in os.environ:
     language = os.environ['LANGUAGE']
 
-model = SentenceTransformer(modelname,
-                            similarity_fn_name=SimilarityFunction.COSINE)
+model = whisper.load_model(modelname)
 
 app = FastAPI()
 
 
-@app.get("/")
-async def get_intent(user_input: str, intent_options: Annotated[list[str] | None, Query()] = None):
-    sentences1 = [unquote(user_input)]
+def decode_audio(audio_bytes: bytes, sample_rate: int = 16000) -> np.ndarray:
+    command = [
+        "ffmpeg",
+        "-nostdin",
+        "-i",
+        "pipe:0",
+        "-f",
+        "f32le",
+        "-ac",
+        "1",
+        "-acodec",
+        "pcm_f32le",
+        "-ar",
+        str(sample_rate),
+        "pipe:1",
+    ]
 
-    intent_options_decoded = []
-    for io in intent_options:
-        if unquote(io) != "candidates":
-            intent_options_decoded.append(unquote(io))
+    try:
+        result = subprocess.run(
+            command,
+            input=audio_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("ffmpeg is required to decode uploaded audio.") from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode(errors="ignore").strip()
+        raise ValueError(f"ffmpeg could not decode uploaded audio: {stderr}") from exc
 
-    sentences2 = intent_options_decoded
+    decoded = np.frombuffer(result.stdout, dtype=np.float32)
+    if decoded.size == 0:
+        raise ValueError("Decoded audio was empty.")
 
-    embeddings1 = model.encode(sentences1)
-    embeddings2 = model.encode(sentences2)
+    return decoded
 
-    similarities = model.similarity(embeddings1, embeddings2)
-    closest = [None, 0.0]
-    secondclosest = [None, 0.0]
-    thirdclosest = [None, 0.0]
 
-    for idx, sentence2 in enumerate(sentences2):
-        print(f" - {sentence2: <30}: {similarities[0][idx]:.4f}")
-        if similarities[0][idx] > closest[1]:
-            thirdclosest = secondclosest
-            secondclosest = closest
-            closest = [sentence2, similarities[0][idx]]
-        elif similarities[0][idx] > secondclosest[1]:
-            secondclosest = [sentence2, similarities[0][idx]]
-        elif similarities[0][idx] > thirdclosest[1]:
-            thirdclosest = [sentence2, similarities[0][idx]]
+@app.post("/")
+async def get_intent(audio: UploadFile = File(...)):
+    theaudio = await audio.read()
+    try:
+        data = decode_audio(theaudio)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if closest[1] > 0.4:
-        if closest[1] - secondclosest[1] < 0.05:
-            if secondclosest[1] - thirdclosest[1] < 0.05:
-                return {"intent": "candidates", "connector_label": [closest[0], secondclosest[0], thirdclosest[0]]}
-            return {"intent": "candidates", "connector_label": [closest[0], secondclosest[0]]}
+    transcribe_kwargs = {}
+    if language != 'auto':
+        transcribe_kwargs['language'] = language
 
-        return {"intent": closest[0], "connector_label": closest[0]}
-    else:
-        return None
+    result = model.transcribe(data, **transcribe_kwargs)
 
-# from sentence_transformers import SentenceTransformer, SimilarityFunction
-# sentences1 = ["Draagt de persoon een corrigerend ding gezichts?"]
-# sentences2 = ["bril", "ogen", "haar", "leeftijd"]
-
-# # model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2',
-# #                             similarity_fn_name=SimilarityFunction.DOT_PRODUCT)
-# model = SentenceTransformer('NetherlandsForensicInstitute/robbert-2022-dutch-sentence-transformers',
-#                             similarity_fn_name=SimilarityFunction.COSINE)
-# embeddings1 = model.encode(sentences1)
-# embeddings2 = model.encode(sentences2)
-
-# similarities = model.similarity(embeddings1, embeddings2)
-
-# for idx_i, sentence1 in enumerate(sentences1):
-#     print(sentence1)
-#     for idx_j, sentence2 in enumerate(sentences2):
-#         print(f" - {sentence2: <30}: {similarities[idx_i][idx_j]:.4f}")
+    return {"intent": result["text"]}

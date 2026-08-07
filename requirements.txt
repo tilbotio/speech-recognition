@@ -1,2 +1,3 @@
 fastapi[standard]
-sentence-transformers
+numpy
+openai-whisper
