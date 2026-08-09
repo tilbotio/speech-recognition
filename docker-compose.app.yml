@@ -1,10 +1,10 @@
 name: tilbot
 services:
-  speech-recognition:
+  speech-recognition: &speech-recognition
     build:
       context: .
       args:
-        PORT: 8082    
+        PORT: 8082
     restart: unless-stopped
     environment:
       MODELNAME: "tiny"
@@ -14,3 +14,15 @@ services:
       - 8082:8082
     volumes:
       - .:/app
+    profiles: [""]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+
+  speech-recognition-cpu:
+    <<: *speech-recognition
+    profiles: ["cpu"]
+    deploy: {}
