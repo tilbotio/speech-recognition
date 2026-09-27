@@ -23,7 +23,7 @@ services:
       file: ../../docker-compose.yml
       service: mongo
 
-  speech-recognition:
+  speech-recognition: &speech-recognition
     build:
       context: .
       args:
@@ -37,6 +37,18 @@ services:
       tbnetwork:
     volumes:
       - .:/app
+    profiles: [""]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+
+  speech-recognition-cpu:
+    <<: *speech-recognition
+    profiles: ["cpu"]
+    deploy: {}
 
 networks:
   tbnetwork:
