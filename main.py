@@ -1,24 +1,27 @@
+import multiprocessing
 import os
 import subprocess
 
 import numpy as np
 import whisper
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from uvicorn import run
 
-modelname = 'tiny'
-language = 'auto'
+load_dotenv()
 
-if 'MODELNAME' in os.environ:
-    modelname = os.environ['MODELNAME']
+PORT = os.getenv("PORT", 8081)
+MODELNAME = os.getenv("MODELNAME", "tiny")
+LANGUAGE = os.getenv("LANGUAGE", "auto")
 
-if 'LANGUAGE' in os.environ:
-    language = os.environ['LANGUAGE']
-
-model = whisper.load_model(modelname)
+model = whisper.load_model(MODELNAME)
 
 app = FastAPI()
 
+@app.get("/healthcheck")
+async def healthcheck():
+    return {"status": "ok"}
 
 def decode_audio(audio_bytes: bytes, sample_rate: int = 16000) -> np.ndarray:
     command = [
@@ -57,6 +60,9 @@ def decode_audio(audio_bytes: bytes, sample_rate: int = 16000) -> np.ndarray:
 
     return decoded
 
+@app.get("/healthcheck")
+async def healthcheck():
+    return {"status": "ok"}
 
 @app.post("/")
 async def get_intent(audio: UploadFile = File(...)):
@@ -69,9 +75,13 @@ async def get_intent(audio: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     transcribe_kwargs = {}
-    if language != 'auto':
-        transcribe_kwargs['language'] = language
+    if LANGUAGE != 'auto':
+        transcribe_kwargs['language'] = LANGUAGE
 
     result = model.transcribe(data, **transcribe_kwargs)
 
     return {"intent": result["text"]}
+
+if __name__ == "__main__":
+    multiprocessing.freeze_support()  # For Windows support
+    run(app, host="0.0.0.0", port=PORT, reload=False, workers=1)
